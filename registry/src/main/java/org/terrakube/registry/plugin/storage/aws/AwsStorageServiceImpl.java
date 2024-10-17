@@ -1,7 +1,10 @@
 package org.terrakube.registry.plugin.storage.aws;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.*;
+import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.core.sync.ResponseTransformer;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.*;
 import lombok.Builder;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -19,10 +22,9 @@ public class AwsStorageServiceImpl implements StorageService {
 
     private static String BUCKET_ZIP_MODULE_LOCATION = "registry/%s/%s/%s/%s/module.zip";
     private static String BUCKET_DOWNLOAD_MODULE_LOCATION = "%s/terraform/modules/v1/download/%s/%s/%s/%s/module.zip";
-    private static final String S3_ERROR_LOG = "S3 Not found: {}";
 
     @NonNull
-    private AmazonS3 s3client;
+    private S3Client s3client;
 
     @NonNull
     private String bucketName;
@@ -41,23 +43,33 @@ public class AwsStorageServiceImpl implements StorageService {
                 moduleVersion);
         log.info("Checking Aws S3 Object exist {}", blobKey);
 
-        if (!s3client.doesObjectExist(bucketName, blobKey)) {
+        HeadObjectRequest headObjectRequest = HeadObjectRequest.builder()
+                .bucket(bucketName)
+                .key(blobKey)
+                .build();
+
+        try {
+            s3client.headObject(headObjectRequest);
+        } catch (NoSuchKeyException e) {
             File gitCloneDirectory = gitService.getCloneRepositoryByTag(source, moduleVersion, vcsType,
                     vcsConnectionType, accessToken, tagPrefix, folder);
             File moduleZip = new File(gitCloneDirectory.getAbsolutePath() + ".zip");
             ZipUtil.pack(gitCloneDirectory, moduleZip);
 
-            PutObjectRequest putObjectRequest = new PutObjectRequest(bucketName, blobKey, moduleZip);
+            PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(blobKey)
+                    .build();
 
-            s3client.putObject(putObjectRequest);
+            s3client.putObject(putObjectRequest, RequestBody.fromFile(moduleZip));
 
             log.info("Upload Aws S3 Object completed", blobKey);
             try {
                 FileUtils.cleanDirectory(gitCloneDirectory);
                 if (FileUtils.deleteQuietly(moduleZip))
                     log.info("Successfully delete folder");
-            } catch (IOException e) {
-                log.error(e.getMessage());
+            } catch (IOException e1) {
+                log.error(e1.getMessage());
             }
         }
 
@@ -69,17 +81,14 @@ public class AwsStorageServiceImpl implements StorageService {
     public byte[] downloadModule(String organizationName, String moduleName, String providerName,
             String moduleVersion) {
         byte[] data;
-        try {
-            log.info("Searching: /registry/{}/{}/{}/{}/module.zip", organizationName, moduleName, providerName,
-                    moduleVersion);
-            S3Object s3object = s3client.getObject(bucketName, String.format(BUCKET_ZIP_MODULE_LOCATION,
-                    organizationName, moduleName, providerName, moduleVersion));
-            S3ObjectInputStream inputStream = s3object.getObjectContent();
-            data = inputStream.getDelegateStream().readAllBytes();
-        } catch (IOException e) {
-            log.error(S3_ERROR_LOG, e.getMessage());
-            data = new byte[0];
-        }
+        log.info("Searching: /registry/{}/{}/{}/{}/module.zip", organizationName, moduleName, providerName,
+                moduleVersion);
+        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                .bucket(bucketName)
+                .key(String.format(BUCKET_ZIP_MODULE_LOCATION, organizationName, moduleName, providerName, moduleVersion))
+                .build();
+        ResponseBytes<GetObjectResponse> s3object = s3client.getObject(getObjectRequest, ResponseTransformer.toBytes());
+        data = s3object.asByteArray();
         return data;
     }
 

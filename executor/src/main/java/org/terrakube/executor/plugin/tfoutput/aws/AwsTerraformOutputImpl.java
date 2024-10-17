@@ -1,6 +1,8 @@
 package org.terrakube.executor.plugin.tfoutput.aws;
 
-import com.amazonaws.services.s3.AmazonS3;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NonNull;
@@ -17,7 +19,7 @@ import org.terrakube.executor.plugin.tfoutput.TerraformOutputPathService;
 public class AwsTerraformOutputImpl implements TerraformOutput {
 
     @NonNull
-    private AmazonS3 s3client;
+    private S3Client s3client;
 
     @NonNull
     private String bucketName;
@@ -33,11 +35,14 @@ public class AwsTerraformOutputImpl implements TerraformOutput {
         byte[] bytes = StringUtils.getBytesUtf8(output + outputError);
         String utf8EncodedString = StringUtils.newStringUtf8(bytes);
 
-        s3client.putObject(
-                bucketName,
-                blobKey,
-                utf8EncodedString
-        );
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(blobKey)
+                .build();
+
+        RequestBody requestBody = RequestBody.fromString(utf8EncodedString);
+
+        s3client.putObject(putObjectRequest, requestBody);
 
         return terraformOutputPathService.getOutputPath(organizationId, jobId, stepId);
     }
