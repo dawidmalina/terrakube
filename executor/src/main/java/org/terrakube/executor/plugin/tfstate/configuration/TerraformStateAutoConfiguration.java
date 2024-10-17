@@ -1,13 +1,13 @@
 package org.terrakube.executor.plugin.tfstate.configuration;
 
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.awscore.client.builder.AwsClientBuilder;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3ClientBuilder;
+import software.amazon.awssdk.services.s3.S3Configuration;
+
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.google.auth.Credentials;
@@ -34,6 +34,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.net.URI;
 
 @Slf4j
 @AllArgsConstructor
@@ -72,28 +73,25 @@ public class TerraformStateAutoConfiguration {
                             .build();
                     break;
                 case AwsTerraformStateImpl:
-                    AWSCredentials credentials = new BasicAWSCredentials(
+                    AwsBasicCredentials credentials = AwsBasicCredentials.create(
                             awsTerraformStateProperties.getAccessKey(),
                             awsTerraformStateProperties.getSecretKey()
                     );
-                    AmazonS3 s3client = null;
 
+                    S3Client s3client = null;
                     if (awsTerraformStateProperties.getEndpoint() != "") {
-                        ClientConfiguration clientConfiguration = new ClientConfiguration();
-                        clientConfiguration.setSignerOverride("AWSS3V4SignerType");
-
-                        s3client = AmazonS3ClientBuilder
-                                .standard()
-                                .withClientConfiguration(clientConfiguration)
-                                .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(awsTerraformStateProperties.getEndpoint(), awsTerraformStateProperties.getRegion()))
-                                .withCredentials(new AWSStaticCredentialsProvider(credentials))
-                                .withPathStyleAccessEnabled(true)
+                        s3client = S3Client.builder()
+                                .region(Region.of(awsTerraformStateProperties.getRegion()))
+                                .credentialsProvider(StaticCredentialsProvider.create(credentials))
+                                .serviceConfiguration(S3Configuration.builder()
+                                        .pathStyleAccessEnabled(true)
+                                        .build())
+                                .endpointOverride(URI.create(awsTerraformStateProperties.getEndpoint()))
                                 .build();
                     } else
-                        s3client = AmazonS3ClientBuilder
-                                .standard()
-                                .withCredentials(new AWSStaticCredentialsProvider(credentials))
-                                .withRegion(Regions.fromName(awsTerraformStateProperties.getRegion()))
+                        s3client = S3Client.builder()
+                                .region(Region.of(awsTerraformStateProperties.getRegion()))
+                                .credentialsProvider(StaticCredentialsProvider.create(credentials))
                                 .build();
 
                     terraformState = AwsTerraformStateImpl.builder()
@@ -102,7 +100,7 @@ public class TerraformStateAutoConfiguration {
                             .bucketName(awsTerraformStateProperties.getBucketName())
                             .accessKey(awsTerraformStateProperties.getAccessKey())
                             .secretKey(awsTerraformStateProperties.getSecretKey())
-                            .region(Regions.fromName(awsTerraformStateProperties.getRegion()))
+                            .region(Region.of(awsTerraformStateProperties.getRegion()))
                             .includeBackendKeys(awsTerraformStateProperties.isIncludeBackendKeys())
                             .terrakubeClient(terrakubeClient)
                             .terraformStatePathService(terraformStatePathService)

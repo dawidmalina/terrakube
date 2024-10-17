@@ -1,13 +1,13 @@
 package org.terrakube.registry.plugin.storage.configuration;
 
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.auth.signer.AwsS3V4Signer;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
+import software.amazon.awssdk.core.client.config.SdkAdvancedClientOption;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.google.auth.Credentials;
@@ -32,6 +32,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.net.URI;
 import java.util.Base64;
 
 @Configuration
@@ -67,28 +68,27 @@ public class StorageAutoConfiguration {
                 break;
             case AwsStorageImpl:
 
-                AWSCredentials credentials = new BasicAWSCredentials(
+                AwsBasicCredentials credentials = AwsBasicCredentials.create(
                         awsStorageServiceProperties.getAccessKey(),
                         awsStorageServiceProperties.getSecretKey()
                 );
 
-                AmazonS3 s3client;
+                S3Client s3client;
                 if (awsStorageServiceProperties.getEndpoint() != "") {
-                    ClientConfiguration clientConfiguration = new ClientConfiguration();
-                    clientConfiguration.setSignerOverride("AWSS3V4SignerType");
+                    ClientOverrideConfiguration clientOverrideConfiguration = ClientOverrideConfiguration.builder()
+                            .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
+                            .build();
                     
-                    s3client = AmazonS3ClientBuilder
-                            .standard()
-                            .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(awsStorageServiceProperties.getEndpoint(), awsStorageServiceProperties.getRegion()))
-                            .withCredentials(new AWSStaticCredentialsProvider(credentials))
-                            .withClientConfiguration(clientConfiguration)
-                            .withPathStyleAccessEnabled(true)
+                    s3client = S3Client.builder()
+                            .endpointOverride(URI.create(awsStorageServiceProperties.getEndpoint()))
+                            .credentialsProvider(StaticCredentialsProvider.create(credentials))
+                            .overrideConfiguration(clientOverrideConfiguration)
+                            .region(Region.of(awsStorageServiceProperties.getRegion()))
                             .build();
                 } else
-                    s3client = AmazonS3ClientBuilder
-                            .standard()
-                            .withCredentials(new AWSStaticCredentialsProvider(credentials))
-                            .withRegion(Regions.fromName(awsStorageServiceProperties.getRegion()))
+                    s3client = S3Client.builder()
+                            .credentialsProvider(StaticCredentialsProvider.create(credentials))
+                            .region(Region.of(awsStorageServiceProperties.getRegion()))
                             .build();
 
                 storageService = AwsStorageServiceImpl.builder()

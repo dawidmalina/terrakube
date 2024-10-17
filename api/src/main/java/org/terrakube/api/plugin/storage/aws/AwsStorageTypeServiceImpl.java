@@ -1,17 +1,22 @@
 package org.terrakube.api.plugin.storage.aws;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.*;
+import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.core.sync.ResponseTransformer;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.*;
 import lombok.Builder;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.StringUtils;
 import org.terrakube.api.plugin.storage.StorageTypeService;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Builder
@@ -29,7 +34,7 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
     private static final String TERRAFORM_TAR_GZ = "content/%s/terraformContent.tar.gz";
 
     @NonNull
-    private AmazonS3 s3client;
+    private S3Client s3client;
 
     @NonNull
     private String bucketName;
@@ -39,9 +44,13 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
         byte[] data;
         try {
             log.info("Searching: tfoutput/{}/{}/{}.tfoutput", organizationId, jobId, stepId);
-            S3Object s3object = s3client.getObject(bucketName, String.format(BUCKET_LOCATION_OUTPUT, organizationId, jobId, stepId));
-            S3ObjectInputStream inputStream = s3object.getObjectContent();
-            data = inputStream.getDelegateStream().readAllBytes();
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(String.format(BUCKET_LOCATION_OUTPUT, organizationId, jobId, stepId))
+                    .build();
+    
+            ResponseBytes<GetObjectResponse> objectBytes = s3client.getObject(getObjectRequest, ResponseTransformer.toBytes());
+            data = objectBytes.asByteArray();
         } catch (Exception e) {
             log.error(S3_ERROR_LOG, e.getMessage());
             data = new byte[0];
@@ -54,9 +63,13 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
         byte[] data;
         try {
             log.info("Searching: tfstate/{}/{}/{}/{}/terraformLibrary.tfPlan", organizationId, workspaceId, jobId, stepId);
-            S3Object s3object = s3client.getObject(bucketName, String.format(BUCKET_STATE_LOCATION, organizationId, workspaceId, jobId, stepId));
-            S3ObjectInputStream inputStream = s3object.getObjectContent();
-            data = inputStream.getDelegateStream().readAllBytes();
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(String.format(BUCKET_STATE_LOCATION, organizationId, workspaceId, jobId, stepId))
+                    .build();
+            
+            ResponseBytes<GetObjectResponse> objectBytes = s3client.getObject(getObjectRequest, ResponseTransformer.toBytes());
+            data = objectBytes.asByteArray();
         } catch (Exception e) {
             log.error(S3_ERROR_LOG, e.getMessage());
             data = new byte[0];
@@ -69,9 +82,13 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
         byte[] data;
         try {
             log.info("Searching: tfstate/{}/{}/state/{}.json", organizationId, workspaceId, stateFileName);
-            S3Object s3object = s3client.getObject(bucketName, String.format(BUCKET_STATE_JSON, organizationId, workspaceId, stateFileName));
-            S3ObjectInputStream inputStream = s3object.getObjectContent();
-            data = inputStream.getDelegateStream().readAllBytes();
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(String.format(BUCKET_STATE_JSON, organizationId, workspaceId, stateFileName))
+                    .build();
+            
+            ResponseBytes<GetObjectResponse> objectBytes = s3client.getObject(getObjectRequest, ResponseTransformer.toBytes());
+            data = objectBytes.asByteArray();
         } catch (Exception e) {
             log.error(S3_ERROR_LOG, e.getMessage());
             data = new byte[0];
@@ -83,7 +100,12 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
     public void uploadTerraformStateJson(String organizationId, String workspaceId, String stateJson, String stateJsonHistoryId) {
         String blobKey = String.format("tfstate/%s/%s/state/%s.json", organizationId, workspaceId, stateJsonHistoryId);
         log.info("terraformJsonStateFile: {}", blobKey);
-        s3client.putObject(bucketName, blobKey, stateJson);
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(blobKey)
+                .build();
+
+        s3client.putObject(putObjectRequest, RequestBody.fromString(stateJson));
     }
 
     @Override
@@ -91,9 +113,13 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
         byte[] data;
         try {
             log.info("Searching: tfstate/{}/{}/terraform.tfstate", organizationId, workspaceId);
-            S3Object s3object = s3client.getObject(bucketName, String.format("tfstate/%s/%s/terraform.tfstate", organizationId, workspaceId));
-            S3ObjectInputStream inputStream = s3object.getObjectContent();
-            data = inputStream.getDelegateStream().readAllBytes();
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(String.format("tfstate/%s/%s/terraform.tfstate", organizationId, workspaceId))
+                    .build();
+            
+            ResponseBytes<GetObjectResponse> objectBytes = s3client.getObject(getObjectRequest, ResponseTransformer.toBytes());
+            data = objectBytes.asByteArray();
         } catch (Exception e) {
             log.error(S3_ERROR_LOG, e.getMessage());
             data = new byte[0];
@@ -107,8 +133,17 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
         String rawBlobKey = String.format("tfstate/%s/%s/state/%s.raw.json", organizationId, workspaceId, historyId);
         log.info("terraformStateFile: {}", blobKey);
         log.info("terraformRawStateFile: {}", rawBlobKey);
-        s3client.putObject(bucketName, blobKey, terraformState);
-        s3client.putObject(bucketName, rawBlobKey, terraformState);
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(blobKey)
+                .build();
+        s3client.putObject(putObjectRequest, RequestBody.fromString(terraformState));
+
+        putObjectRequest = PutObjectRequest.builder()
+            .bucket(bucketName)
+            .key(rawBlobKey)
+            .build();
+        s3client.putObject(putObjectRequest, RequestBody.fromString(terraformState));
     }
 
     @Override
@@ -119,7 +154,11 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
         byte[] bytes = StringUtils.getBytesUtf8(jobContext);
         String utf8EncodedString = StringUtils.newStringUtf8(bytes);
 
-        s3client.putObject(bucketName, blobKey, utf8EncodedString);
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(blobKey)
+                .build();
+        s3client.putObject(putObjectRequest, RequestBody.fromString(utf8EncodedString));
 
         return jobContext;
     }
@@ -129,10 +168,14 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
         String data;
         try {
             log.info("Searching: /tfoutput/context/{}/context.json", jobId);
-            S3Object s3object = s3client.getObject(bucketName, String.format(CONTEXT_JSON, jobId));
-            S3ObjectInputStream inputStream = s3object.getObjectContent();
-            data = new String(inputStream.getDelegateStream().readAllBytes(), StandardCharsets.UTF_8);
-            ;
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(String.format(CONTEXT_JSON, jobId))
+                    .build();
+            
+            ResponseBytes<GetObjectResponse> objectBytes = s3client.getObject(getObjectRequest, ResponseTransformer.toBytes());
+            data = objectBytes.asByteArray().toString();
+
         } catch (Exception e) {
             log.error(S3_ERROR_LOG, e.getMessage());
             data = "{}";
@@ -145,10 +188,17 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
         String blobKey = String.format(TERRAFORM_TAR_GZ, contentId);
         log.info("context file: {}", String.format(TERRAFORM_TAR_GZ, contentId));
 
+        try {
+            PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(blobKey)
+                .contentType("application/gzip")
+                .build();
 
-        ObjectMetadata objectMetadata = new ObjectMetadata();
-        objectMetadata.setContentType("application/gzip");
-        s3client.putObject(bucketName, blobKey, inputStream, objectMetadata);
+            s3client.putObject(putObjectRequest, RequestBody.fromInputStream(inputStream, inputStream.available()));
+        } catch (IOException e) {
+            log.error("Error uploading content file: {}", e.getMessage());
+        }
 
     }
 
@@ -157,9 +207,13 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
         byte[] data;
         try {
             log.info("Searching: content/{}/terraformContent.tar.gz", contentId);
-            S3Object s3object = s3client.getObject(bucketName, String.format(TERRAFORM_TAR_GZ, contentId));
-            S3ObjectInputStream inputStream = s3object.getObjectContent();
-            data = inputStream.getDelegateStream().readAllBytes();
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(String.format(TERRAFORM_TAR_GZ, contentId))
+                    .build();
+            
+            ResponseBytes<GetObjectResponse> objectBytes = s3client.getObject(getObjectRequest, ResponseTransformer.toBytes());
+            data = objectBytes.asByteArray();
         } catch (Exception e) {
             log.error(S3_ERROR_LOG, e.getMessage());
             data = "".getBytes(Charset.defaultCharset());
@@ -188,15 +242,27 @@ public class AwsStorageTypeServiceImpl implements StorageTypeService {
     }
 
     private void deleteFolderFromBucket(String prefix) {
-        ObjectListing objectList = s3client.listObjects(bucketName, prefix);
-        List<S3ObjectSummary> objectSummeryList = objectList.getObjectSummaries();
-        String[] keysList = new String[objectSummeryList.size()];
-        int count = 0;
-        for (S3ObjectSummary summary : objectSummeryList) {
-            keysList[count++] = summary.getKey();
-            log.warn("File {} will be deleted.",summary.getKey());
+        ListObjectsV2Request listObjectsRequest = ListObjectsV2Request.builder()
+                .bucket(bucketName)
+                .prefix(prefix)
+                .build();
+
+        ListObjectsV2Response listObjectsResponse = s3client.listObjectsV2(listObjectsRequest);
+        
+        for (S3Object s3Object : listObjectsResponse.contents()) {
+            log.warn("File {} will be deleted.", s3Object.key());
         }
-        DeleteObjectsRequest deleteObjectsRequest = new DeleteObjectsRequest(bucketName).withKeys(keysList);
+
+        List<ObjectIdentifier> objects = listObjectsResponse.contents().stream()
+                .map(S3Object::key)
+                .map(key -> ObjectIdentifier.builder().key(key).build())
+                .collect(Collectors.toList());
+
+        Delete delete = Delete.builder()
+                .objects(objects)
+                .build();
+
+        DeleteObjectsRequest deleteObjectsRequest = DeleteObjectsRequest.builder().bucket(bucketName).delete(delete).build();
         s3client.deleteObjects(deleteObjectsRequest);
     }
 }
